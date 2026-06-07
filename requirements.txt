@@ -14,5 +14,6 @@ types-pyYAML
 scipy
 Flask
 Flask-Cors
-
+tensorboard==2.16.2
+setuptools
 -e .
