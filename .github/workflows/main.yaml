@@ -22,9 +22,6 @@ jobs:
       - name: Lint code
         run: echo "Linting repository"
 
-      - name: Run unit tests
-        run: echo "Running unit tests"
-
   build-and-push-ecr-image:
     name: Continuous Delivery
     needs: integration
@@ -49,34 +46,36 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          # Force no-cache to ensure all local packages are re-installed correctly
+          docker build --no-cache -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
           
   Continuous-Deployment:
     needs: build-and-push-ecr-image
     runs-on: self-hosted
     steps:
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ECR_LOGIN_URI }}
+      
       - name: Pull and Run
         env:
           ECR_REGISTRY: ${{ secrets.AWS_ECR_LOGIN_URI }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
         run: |
-          # 1. Force a fresh login within this specific session
-          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin $ECR_REGISTRY
-          
-          # 2. Pull the latest image
+          # Pull latest image
           docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
           
-          # 3. Stop and remove existing container
+          # Stop and remove existing container safely
           docker stop chicken || true
           docker rm -f chicken || true
           
-          # 4. Run new container
+          # Run new container
           docker run -d -p 8080:8080 --name=chicken \
             -e 'AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}' \
             -e 'AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}' \
             -e 'AWS_REGION=${{ secrets.AWS_REGION }}' \
             $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          
-          # 5. Clean up
+            
+          # Clean up dangling images to save disk space
           docker image prune -f
