@@ -56,28 +56,27 @@ jobs:
     needs: build-and-push-ecr-image
     runs-on: self-hosted
     steps:
-      - name: Login to Amazon ECR
-        run: |
-          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ECR_LOGIN_URI }}
-      
       - name: Pull and Run
         env:
           ECR_REGISTRY: ${{ secrets.AWS_ECR_LOGIN_URI }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
         run: |
-          # Pull latest image
+          # 1. Force a fresh login within this specific session
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin $ECR_REGISTRY
+          
+          # 2. Pull the latest image
           docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
           
-          # Stop and remove existing container if it exists
+          # 3. Stop and remove existing container
           docker stop chicken || true
           docker rm -f chicken || true
           
-          # Run new container
+          # 4. Run new container
           docker run -d -p 8080:8080 --name=chicken \
             -e 'AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}' \
             -e 'AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}' \
             -e 'AWS_REGION=${{ secrets.AWS_REGION }}' \
             $ECR_REGISTRY/$ECR_REPOSITORY:latest
-            
-          # Clean up dangling images
+          
+          # 5. Clean up
           docker image prune -f
